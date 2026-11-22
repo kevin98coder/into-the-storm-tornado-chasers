@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>Into the Storm: Tornado Chasers</title>
+<style>
+:root{color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:#0b1420;color:#eef5ff;font:15px system-ui,Arial,sans-serif}
+header{padding:12px 16px;background:linear-gradient(100deg,#122b43,#172033);border-bottom:1px solid #38516a}
+h1{font-size:clamp(18px,3vw,27px);margin:0} header p{margin:3px 0 0;color:#b8cce0}
+main{max-width:1100px;margin:auto;padding:12px}
+.panel{background:#142235;border:1px solid #31465d;border-radius:12px;padding:10px}
+.toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px}
+label{font-size:13px;color:#bed0e2}
+select,button{background:#223a52;color:white;border:1px solid #52708d;border-radius:8px;padding:9px;font:inherit}
+button{cursor:pointer}button:active{transform:translateY(1px)}
+#game{width:100%;height:auto;display:block;background:#78916b;border-radius:10px;border:2px solid #405a70;touch-action:none}
+.hud{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:10px 0}
+.stat{background:#0e1b2a;border:1px solid #2b4055;border-radius:8px;padding:8px}
+.stat small{display:block;color:#9eb5ca}.stat strong{font-size:17px}
+.bottom{display:grid;grid-template-columns:1.3fr 1fr;gap:10px}
+#log{min-height:78px;color:#d5e4f3;line-height:1.45}
+.controls{display:flex;justify-content:center;gap:8px;flex-wrap:wrap;margin-top:10px}
+.controls button{min-width:54px;min-height:46px;font-size:18px;touch-action:none}
+#radar{width:100%;max-width:220px;height:auto;display:block;margin:auto;background:#071c1c;border-radius:8px}
+.muted{color:#9fb3c7;font-size:12px}
+@media(max-width:650px){.hud{grid-template-columns:repeat(2,1fr)}.bottom{grid-template-columns:1fr}.toolbar>*{flex:1}.controls button{min-width:62px}}
+</style>
+</head>
+<body>
+<header><h1>🌪️ INTO THE STORM: TORNADO CHASERS</h1><p>A storm-chasing arcade game • Browser edition</p></header>
+<main>
+ <section class="panel">
+  <div class="toolbar">
+   <label>Interceptor / radar truck<br><select id="vehicle"></select></label>
+   <label>Tornado tier<br><select id="ef">
+    <option value="0">EF0</option><option value="1">EF1</option><option value="2" selected>EF2</option>
+    <option value="3">EF3</option><option value="4">EF4</option><option value="5">EF5</option><option value="6">EF6 • Fictional</option>
+   </select></label>
+   <button id="newStorm">New storm</button><button id="restart">Restart chase</button>
+  </div>
+  <canvas id="game" width="960" height="560" aria-label="Top-down storm chasing game"></canvas>
+  <div class="hud">
+   <div class="stat"><small>Storm distance</small><strong id="distance">—</strong></div>
+   <div class="stat"><small>Wind estimate</small><strong id="wind">—</strong></div>
+   <div class="stat"><small>Data points</small><strong id="score">0</strong></div>
+   <div class="stat"><small>Mission</small><strong id="mission">Find the storm</strong></div>
+  </div>
+ </section>
+ <div class="bottom" style="margin-top:10px">
+  <section class="panel"><strong>📡 DOW-style radar display</strong><canvas id="radar" width="240" height="180"></canvas><p class="muted">Radar colors are arcade-style storm intensity, not real weather measurements.</p></section>
+  <section class="panel"><strong>Chase radio</strong><div id="log" role="status">Dispatch: A storm is developing nearby. Drive toward the storm and collect research data.</div>
+   <p class="muted">Keyboard: WASD or arrow keys to drive • Space to collect data • P to deploy a probe</p>
+  </section>
+ </div>
+ <div class="controls" aria-label="Touch driving controls">
+  <button data-key="arrowleft">◀</button><button data-key="arrowup">▲</button>
+  <button data-key="arrowdown">▼</button><button data-key="arrowright">▶</button>
+  <button id="probe">📍 Probe</button><button id="collect">📡 Scan</button>
+ </div>
+ <p class="muted">All listed vehicles are available from the start. Titus is a movie-inspired game vehicle. EF6 is fictional; the official Enhanced Fujita scale currently ends at EF5.</p>
+</main>
+<script>
+(()=>{
+const canvas=document.getElementById('game'),ctx=canvas.getContext('2d');
+const radar=document.getElementById('radar'),rctx=radar.getContext('2d');
+const $=id=>document.getElementById(id);
+const vehicles=['Titus','TIV 1','TIV 2','Dominator 1','Dominator 2','Dominator 3','SRV','DOW 1','DOW 2','DOW 3','DOW 4','DOW 5','DOW 6','DOW 7','DOW 8','DOW 9'];
+vehicles.forEach(v=>{let o=document.createElement('option');o.textContent=v;$('vehicle').append(o)});
+const keys={};let player={x:150,y:420,angle:-.5,speed:0},storm={x:700,y:190,phase:0};
+let score=0,probes=0,scanned=false,mission='Find the storm',lastScan=0,buildings=[];
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+function makeBuildings(){buildings=[];for(let i=0;i<32;i++){let x=35+(i*137)%880,y=35+(i*83)%480;if(Math.hypot(x-storm.x,y-storm.y)>105)buildings.push({x,y,w:25+(i%3)*8,h:20+(i%4)*5,hit:false})}}
+function setLog(s){$('log').textContent=s}
+function newStorm(){storm={x:170+Math.random()*620,y:90+Math.random()*350,phase:Math.random()*6};makeBuildings();scanned=false;mission='Find the storm';$('mission').textContent=mission;setLog('Dispatch: New storm cell detected. Track it on radar.')}
+function reset(){player={x:150,y:420,angle:-.5,speed:0};score=0;probes=0;$('score').textContent='0';newStorm();setLog('Chase reset. All vehicles are unlocked.')}
+function ef(){return +$('ef').value}
+function wind(){return [70,95,120,145,175,205,260][ef()]}
+function drawRoad(){ctx.fillStyle='#78916b';ctx.fillRect(0,0,960,560);
+ctx.fillStyle='#9b9276';ctx.fillRect(0,275,960,58);ctx.fillStyle='#4a4c4b';ctx.fillRect(0,284,960,40);
+ctx.strokeStyle='#e7dca4';ctx.setLineDash([25,20]);ctx.lineWidth=3;ctx.beginPath();ctx.moveTo(0,304);ctx.lineTo(960,304);ctx.stroke();ctx.setLineDash([]);
+for(let x=0;x<960;x+=80){ctx.fillStyle='#68845e';ctx.fillRect(x,0,2,560)}
+}
+function drawBuildings(){for(const b of buildings){ctx.fillStyle=b.hit?'#675c50':'#c2b9a5';ctx.fillRect(b.x,b.y,b.w,b.h);ctx.fillStyle='#704b3e';ctx.fillRect(b.x-3,b.y-5,b.w+6,8);ctx.fillStyle='#343b42';ctx.fillRect(b.x+5,b.y+8,6,7);}}
+function drawStorm(){const e=ef(),s=1+e*.16;ctx.save();ctx.translate(storm.x,storm.y);ctx.rotate(Math.sin(storm.phase)*.08);
+ctx.fillStyle='rgba(35,38,43,.22)';ctx.beginPath();ctx.ellipse(0,12,70*s,25*s,0,0,Math.PI*2);ctx.fill();
+for(let i=0;i<5;i++){let w=(13+i*5)*s;ctx.fillStyle=['#777b7b','#62696c','#50575b','#777b7b','#454d51'][i];ctx.beginPath();ctx.moveTo(-w,-145*s+i*10);ctx.quadraticCurveTo(-w*1.4,0,-w*2,65*s);ctx.lineTo(w*2,65*s);ctx.quadraticCurveTo(w*1.4,0,w,-145*s+i*10);ctx.closePath();ctx.fill()}
+ctx.fillStyle='rgba(220,225,220,.65)';ctx.beginPath();ctx.ellipse(0,65*s,48*s,13*s,0,0,Math.PI*2);ctx.fill();ctx.restore();}
+function drawCar(){ctx.save();ctx.translate(player.x,player.y);ctx.rotate(player.angle);
+let name=$('vehicle').value,colors=name.startsWith('DOW')?'#e5e5d8':name==='Titus'?'#d5a52d':name.startsWith('Dominator')?'#e6e9ed':'#d6dce1';
+ctx.fillStyle='#15191d';ctx.fillRect(-22,-15,44,30);ctx.fillStyle=colors;ctx.fillRect(-19,-12,38,24);
+ctx.fillStyle='#263b4b';ctx.fillRect(-10,-10,19,20);ctx.fillStyle='#101820';ctx.fillRect(-17,-17,10,5);ctx.fillRect(7,-17,10,5);ctx.fillRect(-17,12,10,5);ctx.fillRect(7,12,10,5);
+ctx.fillStyle='#fff2a8';ctx.fillRect(16,-8,4,5);ctx.fillRect(16,4,4,5);ctx.restore();}
+function drawRadar(){rctx.fillStyle='#061c1b';rctx.fillRect(0,0,240,180);rctx.strokeStyle='#1c6b55';for(let rad of [25,50,75]){rctx.beginPath();rctx.arc(120,90,rad,0,7);rctx.stroke()}rctx.beginPath();rctx.moveTo(120,0);rctx.lineTo(120,180);rctx.moveTo(0,90);rctx.lineTo(240,90);rctx.stroke();
+let dx=(storm.x-player.x)*.22,dy=(storm.y-player.y)*.22;
+rctx.fillStyle='#3acb78';rctx.beginPath();rctx.arc(clamp(120+dx,5,235),clamp(90+dy,5,175),10+ef()*2,0,7);rctx.fill();
+rctx.fillStyle='#fff';rctx.beginPath();rctx.arc(120,90,4,0,7);rctx.fill();rctx.fillStyle='#b8e9d2';rctx.font='10px Arial';rctx.fillText('N',116,12);}
+function update(){let accel=0;if(keys.w||keys.arrowup)accel=.12;if(keys.s||keys.arrowdown)accel=-.09;player.speed=clamp(player.speed+accel,-1.7,3.1);if(!accel)player.speed*=.96;
+if(keys.a||keys.arrowleft)player.angle-=.045*(Math.abs(player.speed)+.3);if(keys.d||keys.arrowright)player.angle+=.045*(Math.abs(player.speed)+.3);
+player.x=clamp(player.x+Math.cos(player.angle)*player.speed,18,942);player.y=clamp(player.y+Math.sin(player.angle)*player.speed,18,542);
+storm.phase+=.025;storm.x=clamp(storm.x+Math.sin(storm.phase*.7)*.25,120,840);
+let d=Math.round(Math.hypot(player.x-storm.x,player.y-storm.y));$('distance').textContent=d+' m';$('wind').textContent=wind()+' mph*';$('score').textContent=score;
+if(d<260&&mission==='Find the storm'){mission='Collect storm data';$('mission').textContent=mission;setLog('Radar: Storm circulation detected. Get within range and scan.')}
+drawRoad();drawBuildings();drawStorm();drawCar();drawRadar();
+ctx.fillStyle='rgba(5,15,25,.75)';ctx.fillRect(12,12,200,34);ctx.fillStyle='white';ctx.font='15px Arial';ctx.fillText('VEHICLE: '+$('vehicle').value,22,34);
+requestAnimationFrame(update)}
+function scan(){let d=Math.hypot(player.x-storm.x,player.y-storm.y);if(d<190){score+=10;scanned=true;mission='Data collected!';$('mission').textContent=mission;setLog('Research scan complete! +10 data points. Try deploying a probe for a bonus.')}else setLog('Scan range is too far away. Follow the radar toward the storm.')}
+function deploy(){let d=Math.hypot(player.x-storm.x,player.y-storm.y);if(d<230){score+=20;probes++;$('score').textContent=score;mission='Probe deployed';$('mission').textContent=mission;setLog('Probe deployed successfully! +20 data points. Probes deployed: '+probes+'.')}else setLog('Move closer to the storm before deploying a probe.')}
+window.addEventListener('keydown',e=>{let k=e.key.toLowerCase();keys[k]=true;if(['arrowup','arrowdown','arrowleft','arrowright',' '].includes(k))e.preventDefault();if(k===' '){scan()}if(k==='p')deploy()});
+window.addEventListener('keyup',e=>keys[e.key.toLowerCase()]=false);
+document.querySelectorAll('[data-key]').forEach(b=>{let k=b.dataset.key;b.addEventListener('pointerdown',e=>{e.preventDefault();keys[k]=true});['pointerup','pointerleave','pointercancel'].forEach(ev=>b.addEventListener(ev,()=>keys[k]=false))});
+$('probe').onclick=deploy;$('collect').onclick=scan;$('newStorm').onclick=newStorm;$('restart').onclick=reset;
+makeBuildings();update();
+})();
+</script>
+</body>
+</html>
